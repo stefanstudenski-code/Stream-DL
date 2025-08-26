@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .progress-bar-fill {
+            transition: width 0.3s ease-in-out;
+        }
+        /* Scrollbar-Styling für die Konsole */
+        #console-output::-webkit-scrollbar {
+            width: 8px;
+        }
+        #console-output::-webkit-scrollbar-track {
+            background: #1f2937; /* bg-gray-800 */
+        }
+        #console-output::-webkit-scrollbar-thumb {
+            background: #4b5563; /* bg-gray-600 */
+            border-radius: 4px;
+        }
+        #console-output::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; /* bg-gray-500 */
+        }
+        .console-progress-line {
+            color: #a5b4fc; /* indigo-300 */
+        }
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-8 space-y-6">
+        
+        <div class="text-center">
+             <h1 class="text-3xl font-bold text-white">🎬 YouTube Downloader</h1>
+             <p class="text-gray-400 mt-2">Video-URL einfügen, Optionen auswählen und herunterladen.</p>
+        </div>
+
+        <div class="space-y-4 bg-gray-900 p-6 rounded-lg">
+             <h2 class="text-xl font-semibold text-white">1. Video analysieren</h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="url" id="youtube-url" placeholder="YouTube Video URL einfügen"
+                       class="flex-grow bg-gray-700 text-white placeholder-gray-400 rounded-md px-4 py-2 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <button id="analyze-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md transition duration-300">
+                    Analysieren
+                </button>
+            </div>
+            <div id="analyze-status" class="text-sm text-gray-400 hidden"></div>
+        </div>
+
+        <div id="info-container" class="hidden flex-col md:flex-row gap-6 items-center bg-gray-900 p-6 rounded-lg">
+            <img id="thumbnail" src="" alt="Video Thumbnail" class="w-48 h-auto rounded-md shadow-lg">
+            <div class="flex-grow">
+                <h3 id="video-title" class="text-lg font-bold"></h3>
+                <p id="video-duration" class="text-sm text-gray-400"></p>
+                <div id="type-selection" class="mt-4 flex gap-4">
+                     <h2 class="text-xl font-semibold text-white self-center">2. Typ wählen:</h2>
+                    <button onclick="selectType('video')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition duration-300">🎬 Video</button>
+                    <button onclick="selectType('audio')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-md transition duration-300">🎵 Audio</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="options-container" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-900 p-6 rounded-lg">
+            <h2 class="text-xl font-semibold text-white md:col-span-2">3. Format und Qualität</h2>
+            <div id="audio-options" class="hidden space-y-2">
+                <label for="audio-quality" class="font-medium">Audioqualität:</label>
+                <select id="audio-quality" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 border border-gray-600"></select>
+                <label for="audio-format" class="font-medium">Dateiformat:</label>
+                <select id="audio-format" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 border border-gray-600">
+                    <option value="mp3">MP3</option>
+                    <option value="m4a">M4A</option>
+                    <option value="wav">WAV</option>
+                    <option value="flac">FLAC</option>
+                </select>
+            </div>
+            <div id="video-options" class="hidden space-y-2">
+                <label for="video-quality" class="font-medium">Videoqualität:</label>
+                <select id="video-quality" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 border border-gray-600"></select>
+                <label for="video-format" class="font-medium">Dateiformat:</label>
+                 <select id="video-format" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 border border-gray-600">
+                    <option value="mp4">MP4</option>
+                    <option value="mkv">MKV</option>
+                    <option value="webm">WebM</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="start-download-container" class="hidden bg-gray-900 p-6 rounded-lg">
+             <h2 class="text-xl font-semibold text-white mb-4">4. Download starten</h2>
+            <button id="download-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-md transition duration-300 text-lg">
+                ⬇️ Download starten
+            </button>
+            <div id="download-status" class="text-sm text-gray-400 mt-2 hidden"></div>
+        </div>
+
+        <div id="progress-console-container" class="hidden space-y-4">
+            <div id="progress-container" class="w-full bg-gray-700 rounded-full h-6">
+                <div id="progress-bar" class="progress-bar-fill bg-green-500 h-6 text-xs font-medium text-blue-100 text-center p-1 leading-none rounded-full" style="width: 0%">0%</div>
+            </div>
+            <div id="console-container">
+                <h2 class="text-lg font-semibold mb-2">Konsole</h2>
+                <pre id="console-output" class="bg-black text-sm text-green-400 font-mono rounded-md p-4 h-64 overflow-y-auto whitespace-pre-wrap"></pre>
+            </div>
+        </div>
+
+        <!-- Connection Status Indicator -->
+        <div id="connection-status" class="hidden fixed top-4 right-4 bg-yellow-600 text-white px-4 py-2 rounded-md shadow-lg">
+            <span class="pulse-animation">🔄 Verbindung wird hergestellt...</span>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const urlInput = document.getElementById('youtube-url');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const analyzeStatus = document.getElementById('analyze-status');
+        const downloadStatus = document.getElementById('download-status');
+        const connectionStatus = document.getElementById('connection-status');
+        
+        const infoContainer = document.getElementById('info-container');
+        const videoTitle = document.getElementById('video-title');
+        const videoDuration = document.getElementById('video-duration');
+        const thumbnail = document.getElementById('thumbnail');
+
+        const optionsContainer = document.getElementById('options-container');
+        const audioOptions = document.getElementById('audio-options');
+        const videoOptions = document.getElementById('video-options');
+        const startDownloadContainer = document.getElementById('start-download-container');
+
+        const progressConsoleContainer = document.getElementById('progress-console-container');
+        const progressBar = document.getElementById('progress-bar');
+        const consoleOutput = document.getElementById('console-output');
+
+        // --- State ---
+        let eventSource = null;
+        let availableFormats = null;
+        let currentType = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 3;
+
+        // --- Event Listeners ---
+        analyzeBtn.addEventListener('click', analyzeUrl);
+        downloadBtn.addEventListener('click', startDownload);
+        
+        // Allow Enter key to trigger analysis
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !analyzeBtn.disabled) {
+                analyzeUrl();
+            }
+        });
+
+        // --- Functions ---
+        
+        function showStatus(element, message, isError = false) {
+            element.textContent = message;
+            element.className = `text-sm mt-2 ${isError ? 'text-red-400' : 'text-blue-400'}`;
+            element.classList.remove('hidden');
+        }
+
+        function hideStatus(element) {
+            element.classList.add('hidden');
+        }
+
+        async function analyzeUrl() {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showStatus(analyzeStatus, 'Bitte eine YouTube-URL eingeben.', true);
+                return;
+            }
+
+            // Basic URL validation
+            if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+                showStatus(analyzeStatus, 'Bitte eine gültige YouTube-URL eingeben.', true);
+                return;
+            }
+
+            resetUI(true); // Full reset
+            showStatus(analyzeStatus, 'Video wird analysiert...');
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analysiere...';
+            analyzeBtn.classList.add('pulse-animation');
+
+            try {
+                const response = await fetch(`/api/analyze?url=${encodeURIComponent(url)}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `Server Error: ${response.status}`);
+                }
+                
+                availableFormats = data;
+                videoTitle.textContent = data.title;
+                videoDuration.textContent = `Dauer: ${data.duration}`;
+                
+                // Handle thumbnail loading with fallback
+                const img = new Image();
+                img.onload = () => {
+                    thumbnail.src = data.thumbnail;
+                };
+                img.onerror = () => {
+                    thumbnail.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjEwOCIgdmlld0JveD0iMCAwIDE5MiAxMDgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjE5MiIgaGVpZ2h0PSIxMDgiIGZpbGw9IiM0QjU1NjMiLz48dGV4dCB4PSI5NiIgeT0iNTQiIGZpbGw9IiNGRkZGRkYiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+S2VpbiBCaWxkPC90ZXh0Pjwvc3ZnPg==';
+                };
+                img.src = data.thumbnail;
+
+                populateQualities();
+                infoContainer.classList.remove('hidden');
+                hideStatus(analyzeStatus);
+                addToConsole(`✅ Video gefunden: ${data.title}`, 'success');
+
+            } catch (error) {
+                console.error('Analysis error:', error);
+                showStatus(analyzeStatus, `Fehler bei Analyse: ${error.message}`, true);
+                addToConsole(`❌ Fehler bei Analyse: ${error.message}`, 'error');
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analysieren';
+                analyzeBtn.classList.remove('pulse-animation');
+            }
+        }
+
+        function populateQualities() {
+            const videoSelect = document.getElementById('video-quality');
+            const audioSelect = document.getElementById('audio-quality');
+            videoSelect.innerHTML = '';
+            audioSelect.innerHTML = '';
+
+            if (!availableFormats) return;
+
+            // Populate video formats
+            if (availableFormats.video_formats && availableFormats.video_formats.length > 0) {
+                availableFormats.video_formats.forEach(f => {
+                    const option = new Option(`${f.quality} (${f.ext}, ${f.filesize}) ${f.has_audio ? '🔊' : ''}`, f.format_id);
+                    videoSelect.add(option);
+                });
+            } else {
+                videoSelect.add(new Option('Keine Videoformate verfügbar', ''));
+                videoSelect.disabled = true;
+            }
+
+            // Populate audio formats
+            if (availableFormats.audio_formats && availableFormats.audio_formats.length > 0) {
+                availableFormats.audio_formats.forEach(f => {
+                    const option = new Option(`${f.quality} (${f.ext}, ${f.filesize})`, f.format_id);
+                    audioSelect.add(option);
+                });
+            } else {
+                audioSelect.add(new Option('Keine Audioformate verfügbar', ''));
+                audioSelect.disabled = true;
+            }
+        }
+        
+        function selectType(type) {
+            currentType = type;
+            audioOptions.classList.toggle('hidden', type !== 'audio');
+            videoOptions.classList.toggle('hidden', type !== 'video');
+            
+            // Check if selected type has available formats
+            const hasFormats = type === 'audio' 
+                ? availableFormats?.audio_formats?.length > 0
+                : availableFormats?.video_formats?.length > 0;
+                
+            if (!hasFormats) {
+                showStatus(downloadStatus, `Keine ${type === 'audio' ? 'Audio' : 'Video'}formate verfügbar.`, true);
+                return;
+            }
+            
+            optionsContainer.classList.remove('hidden');
+            startDownloadContainer.classList.remove('hidden');
+            hideStatus(downloadStatus);
+            addToConsole(`Modus ausgewählt: ${type === 'video' ? '🎬 Video' : '🎵 Audio'}`);
+        }
+
+        function startDownload() {
+            const url = urlInput.value.trim();
+            if (!currentType || !url) {
+                showStatus(downloadStatus, 'Bitte zuerst eine URL analysieren und einen Typ auswählen.', true);
+                return;
+            }
+
+            let quality, outputFormat;
+            if (currentType === 'audio') {
+                quality = document.getElementById('audio-quality').value;
+                outputFormat = document.getElementById('audio-format').value;
+            } else {
+                quality = document.getElementById('video-quality').value;
+                outputFormat = document.getElementById('video-format').value;
+            }
+
+            if (!quality) {
+                showStatus(downloadStatus, 'Bitte eine Qualität auswählen.', true);
+                return;
+            }
+
+            resetUI(); // Reset only progress/console for new download
+            progressConsoleContainer.classList.remove('hidden');
+            showStatus(downloadStatus, 'Download wird vorbereitet...');
+            
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            const params = new URLSearchParams({ url, type: currentType, quality, format: outputFormat });
+            startSSEConnection(`/api/download?${params.toString()}`);
+        }
+
+        function startSSEConnection(url) {
+            reconnectAttempts = 0;
+            connectToSSE(url);
+        }
+
+        function connectToSSE(url) {
+            connectionStatus.classList.remove('hidden');
+            eventSource = new EventSource(url);
+
+            downloadBtn.disabled = true;
+            downloadBtn.textContent = 'Läuft...';
+            downloadBtn.classList.add('pulse-animation');
+            
+            eventSource.onopen = () => {
+                connectionStatus.classList.add('hidden');
+                addToConsole('✅ Verbindung hergestellt. Download startet...');
+                showStatus(downloadStatus, 'Download läuft...');
+                reconnectAttempts = 0;
+            };
+
+            eventSource.onerror = (err) => {
+                console.error("EventSource Fehler:", err);
+                
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    addToConsole(`🔄 Verbindung unterbrochen. Neuversuch ${reconnectAttempts}/${maxReconnectAttempts}...`, 'warning');
+                    setTimeout(() => {
+                        if (eventSource) eventSource.close();
+                        connectToSSE(url);
+                    }, 2000);
+                } else {
+                    addToConsole('❌ Verbindung nach mehreren Versuchen fehlgeschlagen.', 'error');
+                    showStatus(downloadStatus, 'Verbindungsfehler zum Server.', true);
+                    closeConnection();
+                }
+            };
+
+            eventSource.onmessage = handleServerMessage;
+        }
+
+        function handleServerMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+
+                if (data.message) {
+                    if (data.status === 'downloading') {
+                        // This is a progress update, overwrite the last line
+                        updateConsoleProgress(data.message);
+                    } else {
+                        // This is a milestone message, add a new line
+                        let messageType = 'info';
+                        if (data.status === 'error') messageType = 'error';
+                        else if (data.status === 'complete') messageType = 'success';
+                        else if (data.status === 'finished') messageType = 'success';
+                        
+                        addToConsole(data.message, messageType);
+                    }
+                }
+                
+                if (data.percent !== undefined) {
+                    updateProgressBar(data.percent);
+                }
+
+                // Update status based on download state
+                if (data.status === 'downloading') {
+                    showStatus(downloadStatus, `Download läuft: ${Math.round(data.percent || 0)}%`);
+                } else if (data.status === 'finished') {
+                    showStatus(downloadStatus, 'Download abgeschlossen, konvertiere...');
+                } else if (data.status === 'complete') {
+                    updateProgressBar(100);
+                    showStatus(downloadStatus, '✅ Erfolgreich abgeschlossen!');
+                    addToConsole('✅ Vorgang erfolgreich abgeschlossen.', 'success');
+                    closeConnection();
+                } else if (data.status === 'error') {
+                    progressBar.classList.remove('bg-green-500');
+                    progressBar.classList.add('bg-red-500');
+                    showStatus(downloadStatus, `❌ Fehler: ${data.message}`, true);
+                    closeConnection();
+                }
+            } catch (e) {
+                console.error('Error parsing SSE data:', e, 'Raw data:', event.data);
+                addToConsole(`Clientseitiger Fehler beim Verarbeiten: ${e.message}`, 'error');
+            }
+        }
+
+        function addToConsole(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            
+            let typeClass = 'text-green-400'; // Default
+            if (type === 'error') typeClass = 'text-red-400';
+            if (type === 'success') typeClass = 'text-green-300 font-bold';
+            if (type === 'info') typeClass = 'text-blue-400';
+            if (type === 'warning') typeClass = 'text-yellow-400';
+
+            line.className = typeClass;
+            line.textContent = `[${timestamp}] ${message}`;
+            
+            consoleOutput.appendChild(line);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            
+            // Limit console lines to prevent memory issues
+            while (consoleOutput.children.length > 100) {
+                consoleOutput.removeChild(consoleOutput.firstChild);
+            }
+        }
+
+        function updateConsoleProgress(message) {
+            const lastLine = consoleOutput.lastElementChild;
+            const timestamp = new Date().toLocaleTimeString();
+            
+            if (lastLine && lastLine.classList.contains('console-progress-line')) {
+                // Update existing progress line
+                lastLine.textContent = `[${timestamp}] ${message}`;
+            } else {
+                // Create new progress line
+                const line = document.createElement('div');
+                line.className = 'console-progress-line';
+                line.textContent = `[${timestamp}] ${message}`;
+                consoleOutput.appendChild(line);
+            }
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        function closeConnection() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            connectionStatus.classList.add('hidden');
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = '⬇️ Download starten';
+            downloadBtn.classList.remove('pulse-animation');
+        }
+
+        function updateProgressBar(percent) {
+            const p = Math.min(100, Math.max(0, Math.round(percent)));
+            progressBar.style.width = `${p}%`;
+            progressBar.textContent = `${p}%`;
+            
+            // Change color based on progress
+            if (p === 100) {
+                progressBar.classList.remove('bg-green-500', 'bg-blue-500');
+                progressBar.classList.add('bg-green-600');
+            } else if (p > 0) {
+                progressBar.classList.remove('bg-gray-500');
+                progressBar.classList.add('bg-blue-500');
+            }
+        }
+
+        function resetUI(fullReset = false) {
+            if (fullReset) {
+                infoContainer.classList.add('hidden');
+                optionsContainer.classList.add('hidden');
+                startDownloadContainer.classList.add('hidden');
+                progressConsoleContainer.classList.add('hidden');
+                currentType = null;
+                hideStatus(analyzeStatus);
+                hideStatus(downloadStatus);
+            }
+            
+            // Reset progress and console
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            progressBar.classList.remove('bg-red-500', 'bg-blue-500', 'bg-green-600');
+            progressBar.classList.add('bg-green-500');
+            consoleOutput.innerHTML = '';
+            
+            // Close any existing connections
+            closeConnection();
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+
+        // Initialize console with welcome message
+        window.addEventListener('load', () => {
+            addToConsole('🎬 YouTube Downloader bereit', 'info');
+        });
+
+    </script>
+</body>
+</html>
