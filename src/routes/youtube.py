@@ -189,9 +189,15 @@ def download_video():
 
             # Build yt-dlp options dynamically
             ydl_opts = {
-                'progress_hooks': [progress_hook],
-                'quiet': True,
+                'format': 'bestvideo+bestaudio/best',
                 'noplaylist': True,
+                'ffmpeg_location': '.',  # weil wir ffmpeg im Root haben
+                'cookiefile': 'cookies.txt',  # ← Füge diese Zeile hinzu
+                # Optional: Falls du nur Audio willst
+                # 'postprocessors': [{
+                #     'key': 'FFmpegExtractAudio',
+                #     'preferredcodec': 'mp3',
+                # }],
             }
             
             # ====== COOKIES EINBINDEN ======
