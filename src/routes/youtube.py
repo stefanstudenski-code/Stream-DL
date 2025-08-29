@@ -187,11 +187,17 @@ def download_video():
             def progress_hook(d):
                 q.put(d)
 
+            # Bestimme den Pfad zu ffmpeg – funktioniert auf allen Systemen
+            ffmpeg_path = os.path.abspath('ffmpeg')
+            if os.name == 'nt':  # Wenn Windows
+                ffmpeg_path += '.exe'
+            
             # Build yt-dlp options dynamically
             ydl_opts = {
                 'format': 'bestvideo+bestaudio/best',
                 'noplaylist': True,
-                'ffmpeg_location': os.path.abspath('ffmpeg'),  # weil wir ffmpeg im Root haben
+                'ffmpeg_location': ffmpeg_path,
+                'cookiefile': cookie_path,  # falls du Cookies nutzt
                 # Optional: Falls du nur Audio willst
                 # 'postprocessors': [{
                 #     'key': 'FFmpegExtractAudio',
