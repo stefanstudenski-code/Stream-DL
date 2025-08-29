@@ -191,7 +191,7 @@ def download_video():
             ydl_opts = {
                 'format': 'bestvideo+bestaudio/best',
                 'noplaylist': True,
-                'ffmpeg_location': '.',  # weil wir ffmpeg im Root haben
+                'ffmpeg_location': os.path.abspath('ffmpeg'),  # weil wir ffmpeg im Root haben
                 'cookiefile': 'cookies.txt',  # ← Füge diese Zeile hinzu
                 # Optional: Falls du nur Audio willst
                 # 'postprocessors': [{
