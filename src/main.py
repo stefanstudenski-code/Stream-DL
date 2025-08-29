@@ -1,5 +1,7 @@
 import os
 import sys
+from dotenv import load_dotenv
+load_dotenv()
 # DON'T CHANGE THIS !!!
 # This line adds the parent directory of the current script's directory to the Python path.
 # This is useful for making modules in sibling directories importable.
