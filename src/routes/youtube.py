@@ -7,12 +7,36 @@ from flask import Blueprint, request, Response, stream_with_context, send_file, 
 from threading import Thread
 from queue import Queue
 import yt_dlp
-import re # Importiere das Regex-Modul
+import re
+import time
 
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 
 # Create a Blueprint for the YouTube routes
 youtube_bp = Blueprint('youtube', __name__)
+
+# ====== NEUE FUNKTION: COOKIES HANDELN ======
+def setup_cookies():
+    """Erstellt eine temporäre Cookie-Datei aus der Umgebungsvariable YT_COOKIES"""
+    cookies = os.environ.get('YT_COOKIES')
+    if cookies:
+        # Erstelle temporäre Datei
+        cookie_file = tempfile.NamedTemporaryFile(delete=False, suffix='.txt')
+        cookie_path = cookie_file.name
+        cookie_file.write(cookies.strip().encode('utf-8'))
+        cookie_file.close()
+        print("✅ Cookies from environment variable written to temporary file")
+        return cookie_path
+    return None
+
+def cleanup_cookies(cookie_path):
+    """Löscht die temporäre Cookie-Datei"""
+    if cookie_path and os.path.exists(cookie_path):
+        try:
+            os.unlink(cookie_path)
+            print("🧹 Temporary cookie file deleted")
+        except Exception as e:
+            print(f"⚠️ Error deleting cookie file: {e}")
 
 def parse_duration(seconds):
     """Konvertiert Sekunden in einen formatierten String (HH:MM:SS)."""
@@ -35,8 +59,15 @@ def analyze_url():
     if not video_url:
         return Response(json.dumps({'error': 'URL parameter is required'}), status=400, mimetype='application/json')
 
+    cookie_path = None
     try:
+        # ====== COOKIES EINBINDEN ======
+        cookie_path = setup_cookies()
+        
         ydl_opts = {'quiet': True}
+        if cookie_path:
+            ydl_opts['cookiefile'] = cookie_path
+            
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
@@ -92,6 +123,9 @@ def analyze_url():
 
     except Exception as e:
         return Response(json.dumps({'error': str(e)}), status=500, mimetype='application/json')
+    finally:
+        # ====== COOKIES AUFRÄUMEN ======
+        cleanup_cookies(cookie_path)
 
 @youtube_bp.route('/download')
 def download_video():
@@ -100,84 +134,160 @@ def download_video():
     download_type = request.args.get('type') # 'audio' or 'video'
     quality = request.args.get('quality') # format_id
     output_format = request.args.get('format') # e.g., 'mp3', 'mp4'
+    filename = request.args.get('filename', str(uuid.uuid4()))
 
     if not all([video_url, download_type, quality, output_format]):
         return Response(json.dumps({'error': 'Missing required parameters'}), status=400, mimetype='application/json')
 
+    # ====== TEMPORÄRER ORDNER FÜR DOWLOADS ======
+    temp_dir = tempfile.mkdtemp()
+    print(f"📁 Created temporary directory: {temp_dir}")
+    
+    def cleanup_temp_dir():
+        """Löscht den temporären Ordner nach dem Download"""
+        try:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                print(f"🧹 Deleted temporary directory: {temp_dir}")
+        except Exception as e:
+            print(f"⚠️ Error deleting temporary directory: {e}")
+
+    @after_this_request
+    def remove_temp_dir(response):
+        """Stellt sicher, dass der temporäre Ordner nach der Antwort gelöscht wird"""
+        cleanup_temp_dir()
+        return response
+
     def generate_stream():
         q = Queue()
-
-        def download_thread(options):
-            try:
-                download_path = os.path.join(os.getcwd(), 'downloads')
-                os.makedirs(download_path, exist_ok=True)
-                options['outtmpl'] = os.path.join(download_path, '%(title)s.%(ext)s')
-                
-                with yt_dlp.YoutubeDL(options) as ydl:
-                    ydl.download([video_url])
-            except Exception as e:
-                q.put({'status': 'error', 'message': str(e)})
-            finally:
-                q.put({'status': 'done'}) # Signal completion
-
-        def progress_hook(d):
-            q.put(d)
-
-        # Build yt-dlp options dynamically
-        ydl_opts = {
-            'progress_hooks': [progress_hook],
-            'quiet': True,
-            'noplaylist': True,
-        }
-
-        if download_type == 'audio':
-            ydl_opts['format'] = quality # Select best audio format
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': output_format, # mp3, aac, etc.
-                'preferredquality': '192', # Standard quality
-            }]
-        elif download_type == 'video':
-            ydl_opts['format'] = quality
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': output_format, # mp4, mkv, etc.
-            }] if output_format != 'mp4' else [] # Only convert if necessary
+        downloaded_file = None
+        cookie_path = None
         
-        # Start download in background
-        thread = Thread(target=download_thread, args=(ydl_opts,))
-        thread.start()
+        try:
+            # ====== COOKIES EINBINDEN ======
+            cookie_path = setup_cookies()
 
-        # Stream progress updates from queue
-        while True:
-            data_dict = q.get()
+            def download_thread(options):
+                nonlocal downloaded_file
+                try:
+                    options['outtmpl'] = os.path.join(temp_dir, f'{filename}.%(ext)s')
+                    
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        ydl.download([video_url])
+                        # Finde die heruntergeladene Datei
+                        for f in os.listdir(temp_dir):
+                            if f.startswith(filename):
+                                downloaded_file = os.path.join(temp_dir, f)
+                                break
+                except Exception as e:
+                    q.put({'status': 'error', 'message': str(e)})
+                finally:
+                    q.put({'status': 'done'}) # Signal completion
 
-            if data_dict['status'] == 'done':
-                break
+            def progress_hook(d):
+                q.put(d)
+
+            # Build yt-dlp options dynamically
+            ydl_opts = {
+                'progress_hooks': [progress_hook],
+                'quiet': True,
+                'noplaylist': True,
+            }
             
-            if data_dict['status'] == 'error':
-                yield f"data: {json.dumps(data_dict)}\n\n"
-                break
+            # ====== COOKIES EINBINDEN ======
+            if cookie_path:
+                ydl_opts['cookiefile'] = cookie_path
 
-            progress = {}
-            if data_dict['status'] == 'downloading':
-                percent_str = data_dict.get('_percent_str', '0%').strip().replace('%', '')
-                progress = {
-                    'percent': float(ansi_escape.sub('', percent_str).strip()),
-                    'status': 'downloading',
-                    'message': f"Downloading: {data_dict.get('_percent_str', '')} of {data_dict.get('_total_bytes_str', '')} at {data_dict.get('_speed_str', '')} ETA {data_dict.get('_eta_str', '')}"
-                }
-            elif data_dict['status'] == 'finished':
-                progress = {
-                    'percent': 100.0,
-                    'status': 'finished',
-                    'message': "Download abgeschlossen, Konvertierung läuft..."
-                }
+            if download_type == 'audio':
+                ydl_opts['format'] = quality # Select best audio format
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': output_format, # mp3, aac, etc.
+                    'preferredquality': '192', # Standard quality
+                }]
+            elif download_type == 'video':
+                ydl_opts['format'] = quality
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': output_format, # mp4, mkv, etc.
+                }] if output_format != 'mp4' else [] # Only convert if necessary
+            
+            # Start download in background
+            thread = Thread(target=download_thread, args=(ydl_opts,))
+            thread.start()
 
-            if progress:
-                yield f"data: {json.dumps(progress)}\n\n"
-        
-        final_message = {'status': 'complete', 'message': 'Prozess abgeschlossen.'}
-        yield f"data: {json.dumps(final_message)}\n\n"
+            # Stream progress updates from queue
+            while True:
+                data_dict = q.get()
+
+                if data_dict['status'] == 'done':
+                    break
+                
+                if data_dict['status'] == 'error':
+                    yield f"data: {json.dumps(data_dict)}\n\n"
+                    break
+
+                progress = {}
+                if data_dict['status'] == 'downloading':
+                    percent_str = data_dict.get('_percent_str', '0%').strip().replace('%', '')
+                    progress = {
+                        'percent': float(ansi_escape.sub('', percent_str).strip()),
+                        'status': 'downloading',
+                        'message': f"Downloading: {data_dict.get('_percent_str', '')} of {data_dict.get('_total_bytes_str', '')} at {data_dict.get('_speed_str', '')} ETA {data_dict.get('_eta_str', '')}"
+                    }
+                elif data_dict['status'] == 'finished':
+                    progress = {
+                        'percent': 100.0,
+                        'status': 'finished',
+                        'message': "Download abgeschlossen, Konvertierung läuft..."
+                    }
+
+                if progress:
+                    yield f"data: {json.dumps(progress)}\n\n"
+            
+            # ====== DATEI IST FERTIG GELADEN ======
+            if downloaded_file:
+                # Erstelle einen Download-Link für die Datei
+                file_url = f"/download_file/{os.path.basename(downloaded_file)}"
+                final_message = {
+                    'status': 'complete', 
+                    'message': 'Prozess abgeschlossen.',
+                    'file_url': file_url
+                }
+                yield f"data: {json.dumps(final_message)}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Download completed but file not found'})}\n\n"
+                
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+        finally:
+            # ====== COOKIES AUFRÄUMEN ======
+            cleanup_cookies(cookie_path)
 
     return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+
+# ====== NEUER ENDPOINT: DATEI HERUNTERLADEN ======
+@youtube_bp.route('/download_file/<filename>')
+def serve_downloaded_file(filename):
+    """Liefert die heruntergeladene Datei und löscht sie danach"""
+    # Finde die Datei im temporären Ordner
+    temp_dir = tempfile.gettempdir()
+    file_path = os.path.join(temp_dir, filename)
+    
+    if not os.path.exists(file_path):
+        return Response(json.dumps({'error': 'File not found'}), status=404, mimetype='application/json')
+    
+    # Lösche die Datei nach dem Senden
+    @after_this_request
+    def remove_file(response):
+        try:
+            os.remove(file_path)
+            print(f"🧹 Deleted file after download: {file_path}")
+            # Leere den temporären Ordner, falls leer
+            if not os.listdir(temp_dir):
+                os.rmdir(temp_dir)
+        except Exception as error:
+            print(f"⚠️ Error removing file: {error}")
+        return response
+    
+    return send_file(file_path, as_attachment=True, download_name=filename)
